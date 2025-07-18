@@ -1,9 +1,7 @@
-
 import React, { useCallback, useState, useEffect, useMemo } from 'react';
 import useLocalStorage from './hooks/useLocalStorage';
-import { INITIAL_USERS } from './constants';
+import { INITIAL_USERS, GENERIC_MESSAGES } from './constants';
 import { User, WeightEntry } from './types';
-import { getMotivationalMessage } from './services/geminiService';
 
 const WeightGraph: React.FC<{ history: WeightEntry[]; goalWeight: number }> = ({ history, goalWeight }) => {
   const SvgWidth = 300;
@@ -220,10 +218,17 @@ const UserCard: React.FC<{
   onDeleteWeight: (userId: 'hussein' | 'rola', id: string) => void;
 }> = ({ user, otherUser, onAddWeight, onUpdateDetails, onDeleteWeight }) => {
     const [weightInput, setWeightInput] = useState<string>('');
-    const [motivationalMessage, setMotivationalMessage] = useState<string>('');
-    const [isLoadingMessage, setIsLoadingMessage] = useState<boolean>(true);
     const [isHistoryVisible, setIsHistoryVisible] = useState(false);
     const [isEditModalVisible, setIsEditModalVisible] = useState(false);
+
+    const motivationalMessage = useMemo(() => {
+        if (user.weightHistory.length === 0) {
+            return `Welcome, ${user.name}! Add your first weight to start your journey.`;
+        }
+        // Cycle through messages based on the number of entries for some variety
+        const messageIndex = user.weightHistory.length % GENERIC_MESSAGES.length;
+        return GENERIC_MESSAGES[messageIndex];
+    }, [user.name, user.weightHistory.length]);
 
     const todaysLastEntry = useMemo(() => {
         const today = new Date().toISOString().split('T')[0];
@@ -234,32 +239,9 @@ const UserCard: React.FC<{
         setWeightInput(todaysLastEntry?.weight.toString() || '');
     }, [todaysLastEntry]);
 
-
     const startWeight = user.weightHistory[0]?.weight;
     const currentWeight = user.weightHistory[user.weightHistory.length - 1]?.weight;
     const weightToGo = currentWeight ? (currentWeight - user.goalWeight).toFixed(1) : 'N/A';
-
-    const fetchMessage = useCallback(async () => {
-      if (user.weightHistory.length === 0) {
-        setMotivationalMessage(`Welcome, ${user.name}! Add your first weight to start your journey.`);
-        setIsLoadingMessage(false);
-        return;
-      }
-      setIsLoadingMessage(true);
-      try {
-        const message = await getMotivationalMessage(user);
-        setMotivationalMessage(message);
-      } catch (error) {
-        console.error(error);
-        setMotivationalMessage("You're on the right track. Keep going!");
-      } finally {
-        setIsLoadingMessage(false);
-      }
-    }, [user]);
-
-    useEffect(() => {
-        fetchMessage();
-    }, [fetchMessage, user.weightHistory.length]);
 
     const handleAddWeightSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -342,11 +324,7 @@ const UserCard: React.FC<{
             </form>
 
             <div className="bg-slate-50 p-4 rounded-lg min-h-[80px] flex items-center justify-center text-center">
-                {isLoadingMessage ? (
-                     <div className="w-6 h-6 border-4 border-slate-200 border-t-brand-primary rounded-full animate-spin"></div>
-                ) : (
-                    <p className="text-sm text-dark-text italic">"{motivationalMessage}"</p>
-                )}
+                <p className="text-sm text-dark-text italic">"{motivationalMessage}"</p>
             </div>
             
             <div>

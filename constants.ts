@@ -1,5 +1,14 @@
-
 import { User } from './types';
+
+export const GENERIC_MESSAGES: string[] = [
+    "Keep up the great work! Every step counts.",
+    "Consistency is the key to success. You're doing great!",
+    "One day at a time, one step at a time. You've got this!",
+    "Be proud of yourself for the commitment you've made.",
+    "Progress is progress, no matter how small. Keep pushing!",
+    "Believe in yourself and all that you are. You are stronger than you think.",
+    "The journey of a thousand miles begins with a single step. You're on your way!"
+];
 
 const today = new Date();
 const yesterday = new Date(today);
