@@ -1,7 +1,8 @@
 import React, { useCallback, useState, useEffect, useMemo } from 'react';
-import useLocalStorage from './hooks/useLocalStorage';
-import { INITIAL_USERS, GENERIC_MESSAGES } from './constants';
+import { GENERIC_MESSAGES } from './constants';
 import { User, WeightEntry } from './types';
+import * as dataService from './services/dataService';
+import { firebaseConfig } from './firebaseConfig';
 
 const WeightGraph: React.FC<{ history: WeightEntry[]; goalWeight: number }> = ({ history, goalWeight }) => {
   const SvgWidth = 300;
@@ -28,11 +29,7 @@ const WeightGraph: React.FC<{ history: WeightEntry[]; goalWeight: number }> = ({
 
       const pathData = points.map(p => `${p.x},${p.y}`).join(' ');
       
-      const lastPoint = points[points.length - 1];
-      const goalLabelY = goalY < SvgHeight - 30 ? goalY + 15 : goalY - 5;
-      const latestWeightLabelY = lastPoint.y < SvgHeight - 30 ? lastPoint.y + 15 : lastPoint.y - 5;
-
-      return { points, pathData, goalY, minWeight, maxWeight, goalLabelY, latestWeightLabelY, lastPoint };
+      return { points, pathData, goalY };
   }, [history, goalWeight]);
 
   if (history.length < 2 || !data) {
@@ -43,7 +40,7 @@ const WeightGraph: React.FC<{ history: WeightEntry[]; goalWeight: number }> = ({
     );
   }
   
-  const { points, pathData, goalY, minWeight, maxWeight, goalLabelY, lastPoint } = data;
+  const { points, pathData, goalY } = data;
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
@@ -158,37 +155,21 @@ const WeightHistoryModal: React.FC<{ user: User; onClose: () => void; onDelete: 
     );
 };
 
-const EditUserModal: React.FC<{ user: User; onClose: () => void; onSave: (startWeight: number, goalWeight: number) => void }> = ({ user, onClose, onSave }) => {
-    const [startWeight, setStartWeight] = useState(user.weightHistory[0]?.weight.toString() || '');
+const EditUserModal: React.FC<{ user: User; onClose: () => void; onSave: (goalWeight: number) => void }> = ({ user, onClose, onSave }) => {
     const [goalWeight, setGoalWeight] = useState(user.goalWeight.toString());
-    const isStartWeightDisabled = user.weightHistory.length === 0;
 
     const handleSave = (e: React.FormEvent) => {
         e.preventDefault();
-        const start = parseFloat(startWeight);
         const goal = parseFloat(goalWeight);
-        if (!isNaN(goal) && goal > 0 && (isStartWeightDisabled || (!isNaN(start) && start > 0))) {
-            onSave(isStartWeightDisabled ? user.weightHistory[0]?.weight : start, goal);
+        if (!isNaN(goal) && goal > 0) {
+            onSave(goal);
             onClose();
         }
     };
 
     return (
-        <Modal onClose={onClose} title={`Edit ${user.name}'s Details`}>
+        <Modal onClose={onClose} title={`Edit ${user.name}'s Goal`}>
             <form onSubmit={handleSave} className="flex flex-col gap-4">
-                <div>
-                    <label htmlFor="startWeight" className="block text-sm font-medium text-light-text mb-1">Start Weight (kg)</label>
-                    <input
-                        id="startWeight"
-                        type="number"
-                        step="0.1"
-                        value={startWeight}
-                        onChange={(e) => setStartWeight(e.target.value)}
-                        disabled={isStartWeightDisabled}
-                        className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-primary focus:border-brand-primary transition disabled:bg-slate-100 disabled:cursor-not-allowed"
-                    />
-                    {isStartWeightDisabled && <p className="text-xs text-light-text mt-1">Add a weight entry to set a start weight.</p>}
-                </div>
                 <div>
                     <label htmlFor="goalWeight" className="block text-sm font-medium text-light-text mb-1">Goal Weight (kg)</label>
                     <input
@@ -214,7 +195,7 @@ const UserCard: React.FC<{
   user: User; 
   otherUser: User; 
   onAddWeight: (userId: 'hussein' | 'rola', weight: number) => void;
-  onUpdateDetails: (userId: 'hussein' | 'rola', startWeight: number, goalWeight: number) => void;
+  onUpdateDetails: (userId: 'hussein' | 'rola', goalWeight: number) => void;
   onDeleteWeight: (userId: 'hussein' | 'rola', id: string) => void;
 }> = ({ user, otherUser, onAddWeight, onUpdateDetails, onDeleteWeight }) => {
     const [weightInput, setWeightInput] = useState<string>('');
@@ -225,7 +206,6 @@ const UserCard: React.FC<{
         if (user.weightHistory.length === 0) {
             return `Welcome, ${user.name}! Add your first weight to start your journey.`;
         }
-        // Cycle through messages based on the number of entries for some variety
         const messageIndex = user.weightHistory.length % GENERIC_MESSAGES.length;
         return GENERIC_MESSAGES[messageIndex];
     }, [user.name, user.weightHistory.length]);
@@ -248,11 +228,12 @@ const UserCard: React.FC<{
         const weightValue = parseFloat(weightInput);
         if (!isNaN(weightValue) && weightValue > 0) {
             onAddWeight(user.id, weightValue);
+            // setWeightInput(''); // Optionally clear input after submission
         }
     };
 
-    const handleSaveDetails = (startWeight: number, goalWeight: number) => {
-        onUpdateDetails(user.id, startWeight, goalWeight);
+    const handleSaveDetails = (goalWeight: number) => {
+        onUpdateDetails(user.id, goalWeight);
     };
 
     const handleDeleteWeight = (id: string) => {
@@ -305,7 +286,7 @@ const UserCard: React.FC<{
             </div>
 
             <div className="text-center bg-indigo-50 text-brand-primary font-semibold py-2 rounded-lg">
-                {typeof weightToGo === 'string' && parseFloat(weightToGo) > 0 ? `${weightToGo} kg to go!` : 'Goal Reached! 🎉'}
+                {currentWeight === undefined ? 'Log a weight to begin!' : parseFloat(weightToGo) > 0 ? `${weightToGo} kg to go!` : 'Goal Reached! 🎉'}
             </div>
 
             <form onSubmit={handleAddWeightSubmit} className="flex gap-2 items-center">
@@ -319,7 +300,7 @@ const UserCard: React.FC<{
                     className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-primary focus:border-brand-primary transition"
                 />
                 <button type="submit" className="bg-brand-primary text-white font-semibold px-4 py-2 rounded-lg hover:bg-opacity-90 transition shadow-sm active:scale-95">
-                  {todaysLastEntry ? 'Update' : 'Add'}
+                  Add
                 </button>
             </form>
 
@@ -345,97 +326,139 @@ const UserCard: React.FC<{
 }
 
 const App: React.FC = () => {
-  const [users, setUsers] = useLocalStorage<User[]>('weight-tracker-users', INITIAL_USERS);
+    const [users, setUsers] = useState<User[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
 
-  const handleAddWeight = useCallback((userId: 'hussein' | 'rola', weight: number) => {
-    setUsers(prevUsers => {
-      const newUsers = prevUsers.map(user => {
-        if (user.id === userId) {
-            const newEntry: WeightEntry = {
-                id: `${Date.now()}-${Math.random()}`, // Simple unique ID
-                date: new Date().toISOString(),
-                weight,
-            };
-
-            const newHistory = [...user.weightHistory, newEntry];
-            newHistory.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-            return { ...user, weightHistory: newHistory };
+    const loadData = useCallback(async () => {
+        setIsLoading(true);
+        setError(null);
+        try {
+            const usersData = await dataService.getUsers();
+            setUsers(usersData);
+        } catch (err: any) {
+            console.error(err);
+            setError(err.message || "Failed to load data from Firebase.");
+        } finally {
+            setIsLoading(false);
         }
-        return user;
-      });
-      window.localStorage.setItem('weight-tracker-users', JSON.stringify(newUsers));
-      return newUsers;
-    });
-  }, [setUsers]);
+    }, []);
 
-  const handleUpdateDetails = useCallback((userId: 'hussein' | 'rola', newStartWeight: number, newGoalWeight: number) => {
-    setUsers(prevUsers => {
-        const newUsers = prevUsers.map(user => {
-            if (user.id === userId) {
-                const updatedHistory = [...user.weightHistory];
-                if (updatedHistory.length > 0) {
-                    updatedHistory[0] = { ...updatedHistory[0], weight: newStartWeight };
-                }
-                
-                return { 
-                    ...user, 
-                    goalWeight: newGoalWeight,
-                    weightHistory: updatedHistory 
-                };
+    useEffect(() => {
+        const initialize = async () => {
+            try {
+                await dataService.initFirebaseAndSeed();
+                await loadData();
+            } catch (err: any) {
+                console.error("Initialization Error:", err);
+                setError(err.message || 'An unknown error occurred during initialization.');
+                setIsLoading(false);
             }
-            return user;
-        });
-        window.localStorage.setItem('weight-tracker-users', JSON.stringify(newUsers));
-        return newUsers;
-    });
-  }, [setUsers]);
+        };
+        initialize();
+    }, [loadData]);
 
-  const handleDeleteWeight = useCallback((userId: 'hussein' | 'rola', idToDelete: string) => {
-    setUsers(prevUsers => {
-        const newUsers = prevUsers.map(user => {
-            if (user.id === userId) {
-                const newHistory = user.weightHistory.filter(entry => entry.id !== idToDelete);
-                return { ...user, weightHistory: newHistory };
-            }
-            return user;
-        });
-        window.localStorage.setItem('weight-tracker-users', JSON.stringify(newUsers));
-        return newUsers;
-    });
-  }, [setUsers]);
+    const handleAddWeight = useCallback(async (userId: 'hussein' | 'rola', weight: number) => {
+        await dataService.addWeightEntry(userId, weight);
+        await loadData();
+    }, [loadData]);
 
-  const hussein = users.find(u => u.id === 'hussein');
-  const rola = users.find(u => u.id === 'rola');
+    const handleUpdateDetails = useCallback(async (userId: 'hussein' | 'rola', newGoalWeight: number) => {
+        await dataService.updateUserGoalWeight(userId, newGoalWeight);
+        await loadData();
+    }, [loadData]);
 
-  return (
-    <div className="min-h-screen bg-light-bg text-dark-text font-sans p-4 sm:p-6 lg:p-8">
-      <div className="max-w-7xl mx-auto">
-        <header className="text-center mb-8 md:mb-12">
-          <div className="flex items-center justify-center gap-3">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-brand-primary" viewBox="0 0 24 24" fill="currentColor">
-               <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
-            </svg>
-            <h1 className="text-3xl md:text-4xl font-bold text-dark-text tracking-tight">
-              Our Weight Journey
-            </h1>
-          </div>
-          <p className="mt-2 text-light-text">Tracking our progress, one day at a time.</p>
-        </header>
+    const handleDeleteWeight = useCallback(async (userId: 'hussein' | 'rola', idToDelete: string) => {
+        await dataService.deleteWeightEntry(userId, idToDelete);
+        await loadData();
+    }, [loadData]);
 
-        <main>
-          {(!hussein || !rola) ? (
-            <div className="text-center text-red-500">Error loading user data. Please clear local storage and refresh.</div>
-          ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
-              <UserCard user={rola} otherUser={hussein} onAddWeight={handleAddWeight} onUpdateDetails={handleUpdateDetails} onDeleteWeight={handleDeleteWeight} />
-              <UserCard user={hussein} otherUser={rola} onAddWeight={handleAddWeight} onUpdateDetails={handleUpdateDetails} onDeleteWeight={handleDeleteWeight} />
+    if (error) {
+        return (
+            <div className="flex items-center justify-center min-h-screen p-4 bg-light-bg">
+                <div className="text-left bg-white border border-red-200 rounded-lg p-8 max-w-2xl shadow-lg">
+                    <h2 className="text-2xl font-bold text-red-700">Firebase Firestore Permissions Error</h2>
+                    <p className="mt-3 text-dark-text">
+                        It looks like the app doesn't have permission to access your Firestore database. This is a common setup step!
+                    </p>
+                    <p className="mt-2 text-dark-text">
+                        The error message from Firebase was: <code className="text-sm bg-red-50 text-red-700 rounded px-1 py-0.5">{error}</code>
+                    </p>
+                    
+                    <p className="mt-6 font-semibold text-dark-text">To fix this, you need to update your Firestore Security Rules:</p>
+                    
+                    <ol className="list-decimal list-inside mt-3 space-y-2 text-light-text">
+                        <li>Go to the <a href={`https://console.firebase.google.com/project/${firebaseConfig.projectId}/firestore/rules`} target="_blank" rel="noopener noreferrer" className="text-brand-primary hover:underline font-semibold">Firebase Console</a> for your project.</li>
+                        <li>Navigate to the <strong>Firestore Database</strong> section.</li>
+                        <li>Click on the <strong>Rules</strong> tab at the top.</li>
+                        <li>Replace the existing rules with the following code. This will allow the app to read and write data.</li>
+                    </ol>
+                    
+                    <pre className="bg-slate-800 text-white p-4 rounded-lg mt-4 text-sm overflow-x-auto">
+                        <code>
+{`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // This rule allows anyone to read and write to your database.
+    // It's great for getting started, but for production apps,
+    // you should implement more secure rules.
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}`}
+                        </code>
+                    </pre>
+                    
+                    <p className="mt-4 text-sm text-light-text">
+                        After pasting the new rules, click <strong>Publish</strong>. Then, refresh this page.
+                    </p>
+                </div>
             </div>
-          )}
-        </main>
-      </div>
-    </div>
-  );
+        );
+    }
+
+    if (isLoading) {
+        return (
+            <div className="flex items-center justify-center min-h-screen">
+                <div className="text-center">
+                    <p className="text-lg font-semibold text-brand-primary">Fetching your journey...</p>
+                </div>
+            </div>
+        );
+    }
+
+    const hussein = users.find(u => u.id === 'hussein');
+    const rola = users.find(u => u.id === 'rola');
+
+    return (
+        <div className="min-h-screen bg-light-bg text-dark-text font-sans p-4 sm:p-6 lg:p-8">
+            <div className="max-w-7xl mx-auto">
+                <header className="text-center mb-8 md:mb-12 relative">
+                    <div className="flex items-center justify-center gap-3">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-brand-primary" viewBox="0 0 24 24" fill="currentColor">
+                           <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
+                        </svg>
+                        <h1 className="text-3xl md:text-4xl font-bold text-dark-text tracking-tight">
+                          Our Weight Journey
+                        </h1>
+                    </div>
+                    <p className="mt-2 text-light-text">Tracking our progress, one day at a time.</p>
+                </header>
+
+                <main>
+                    {(!hussein || !rola) ? (
+                        <div className="text-center text-red-500">Error: Could not load user data. Check your Firestore database.</div>
+                    ) : (
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
+                            <UserCard user={rola} otherUser={hussein} onAddWeight={handleAddWeight} onUpdateDetails={handleUpdateDetails} onDeleteWeight={handleDeleteWeight} />
+                            <UserCard user={hussein} otherUser={rola} onAddWeight={handleAddWeight} onUpdateDetails={handleUpdateDetails} onDeleteWeight={handleDeleteWeight} />
+                        </div>
+                    )}
+                </main>
+            </div>
+        </div>
+    );
 };
 
 export default App;
