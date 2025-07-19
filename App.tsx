@@ -1,3 +1,4 @@
+
 import React, { useCallback, useState, useEffect, useMemo } from 'react';
 import { GENERIC_MESSAGES } from './constants';
 import { User, WeightEntry } from './types';
@@ -210,15 +211,6 @@ const UserCard: React.FC<{
         return GENERIC_MESSAGES[messageIndex];
     }, [user.name, user.weightHistory.length]);
 
-    const todaysLastEntry = useMemo(() => {
-        const today = new Date().toISOString().split('T')[0];
-        return [...user.weightHistory].reverse().find(e => e.date.startsWith(today));
-    }, [user.weightHistory]);
-
-    useEffect(() => {
-        setWeightInput(todaysLastEntry?.weight.toString() || '');
-    }, [todaysLastEntry]);
-
     const startWeight = user.weightHistory[0]?.weight;
     const currentWeight = user.weightHistory[user.weightHistory.length - 1]?.weight;
     const weightToGo = currentWeight ? (currentWeight - user.goalWeight).toFixed(1) : 'N/A';
@@ -228,7 +220,7 @@ const UserCard: React.FC<{
         const weightValue = parseFloat(weightInput);
         if (!isNaN(weightValue) && weightValue > 0) {
             onAddWeight(user.id, weightValue);
-            // setWeightInput(''); // Optionally clear input after submission
+            setWeightInput('');
         }
     };
 
