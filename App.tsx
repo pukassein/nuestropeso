@@ -3,7 +3,7 @@ import React, { useCallback, useState, useEffect, useMemo } from 'react';
 import { GENERIC_MESSAGES } from './constants';
 import { User, WeightEntry } from './types';
 import * as dataService from './services/dataService';
-import { firebaseConfig } from './firebaseConfig';
+import { firebaseConfig } from './config/firebaseConfig';
 
 const WeightGraph: React.FC<{ history: WeightEntry[]; goalWeight: number }> = ({ history, goalWeight }) => {
   const SvgWidth = 300;

@@ -1,25 +1,17 @@
-import { initializeApp } from 'firebase/app';
-import {
-    getFirestore,
-    collection,
-    getDocs,
-    doc,
-    addDoc,
-    updateDoc,
-    deleteDoc,
-    Timestamp,
-    query,
-    orderBy,
-    writeBatch
-} from 'firebase/firestore/lite';
-import { firebaseConfig } from '../firebaseConfig';
+import firebase from 'firebase/compat/app';
+import 'firebase/compat/firestore';
+
+import { firebaseConfig } from '../config/firebaseConfig';
 import { User, WeightEntry } from '../types';
 import { INITIAL_USERS } from '../constants';
 
 // Initialize Firebase
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
-const usersCollection = collection(db, 'users');
+if (!firebase.apps.length) {
+    firebase.initializeApp(firebaseConfig);
+}
+
+const db = firebase.firestore();
+const Timestamp = firebase.firestore.Timestamp;
 
 /**
  * Seeds the database with initial user data if it's empty.
@@ -27,17 +19,18 @@ const usersCollection = collection(db, 'users');
  */
 const seedDatabase = async () => {
     console.log("Database is empty. Seeding with initial data...");
-    const batch = writeBatch(db);
+    const batch = db.batch();
 
     INITIAL_USERS.forEach(user => {
-        const userDocRef = doc(db, "users", user.id);
+        const userDocRef = db.collection("users").doc(user.id);
         // Destructure to separate user data from weight history
         const { weightHistory, ...userData } = user;
         batch.set(userDocRef, userData);
 
         // Add each weight entry to a subcollection for that user
+        const weightHistoryCollectionRef = userDocRef.collection("weightHistory");
         user.weightHistory.forEach(entry => {
-            const weightDocRef = doc(collection(userDocRef, "weightHistory")); // Create a new doc with a random ID
+            const weightDocRef = weightHistoryCollectionRef.doc(); // Creates a new doc with a random ID
             batch.set(weightDocRef, {
                 date: Timestamp.fromDate(new Date(entry.date)), // Store as Firestore Timestamp for proper ordering
                 weight: entry.weight
@@ -57,7 +50,7 @@ export const initFirebaseAndSeed = async () => {
     if (firebaseConfig.projectId.startsWith('YOUR_')) {
          throw new Error("Please configure your Firebase settings in firebaseConfig.ts");
     }
-    const snapshot = await getDocs(query(usersCollection));
+    const snapshot = await db.collection('users').get();
     if (snapshot.empty) {
         await seedDatabase();
     }
@@ -67,22 +60,20 @@ export const initFirebaseAndSeed = async () => {
  * Fetches all users and their complete weight histories from Firestore.
  */
 export const getUsers = async (): Promise<User[]> => {
-    const usersSnapshot = await getDocs(usersCollection);
+    const usersSnapshot = await db.collection('users').get();
     
     const users: User[] = [];
     for (const userDoc of usersSnapshot.docs) {
         const userData = userDoc.data() as Omit<User, 'weightHistory' | 'id'>;
         
         // Fetch weight history from the subcollection
-        const weightHistoryCollection = collection(db, `users/${userDoc.id}/weightHistory`);
-        const weightHistoryQuery = query(weightHistoryCollection, orderBy("date", "asc"));
-        const weightHistorySnapshot = await getDocs(weightHistoryQuery);
+        const weightHistorySnapshot = await db.collection(`users/${userDoc.id}/weightHistory`).orderBy("date", "asc").get();
         
         const weightHistory: WeightEntry[] = weightHistorySnapshot.docs.map(doc => {
             const data = doc.data();
             return {
                 id: doc.id,
-                date: (data.date as Timestamp).toDate().toISOString(),
+                date: (data.date as firebase.firestore.Timestamp).toDate().toISOString(),
                 weight: data.weight,
                 userId: userDoc.id as 'hussein' | 'rola'
             };
@@ -104,8 +95,8 @@ export const getUsers = async (): Promise<User[]> => {
  * Adds a new weight entry for a specific user.
  */
 export const addWeightEntry = async (userId: 'hussein' | 'rola', weight: number) => {
-    const weightHistoryCollection = collection(db, `users/${userId}/weightHistory`);
-    await addDoc(weightHistoryCollection, {
+    const weightHistoryCollection = db.collection(`users/${userId}/weightHistory`);
+    await weightHistoryCollection.add({
         date: Timestamp.now(),
         weight: weight
     });
@@ -115,8 +106,8 @@ export const addWeightEntry = async (userId: 'hussein' | 'rola', weight: number)
  * Updates the goal weight for a specific user.
  */
 export const updateUserGoalWeight = async (userId: 'hussein' | 'rola', newGoalWeight: number) => {
-    const userDocRef = doc(db, 'users', userId);
-    await updateDoc(userDocRef, {
+    const userDocRef = db.collection('users').doc(userId);
+    await userDocRef.update({
         goalWeight: newGoalWeight
     });
 };
@@ -125,6 +116,6 @@ export const updateUserGoalWeight = async (userId: 'hussein' | 'rola', newGoalWe
  * Deletes a specific weight entry for a user.
  */
 export const deleteWeightEntry = async (userId: 'hussein' | 'rola', idToDelete: string) => {
-    const weightDocRef = doc(db, `users/${userId}/weightHistory`, idToDelete);
-    await deleteDoc(weightDocRef);
+    const weightDocRef = db.collection(`users/${userId}/weightHistory`).doc(idToDelete);
+    await weightDocRef.delete();
 };
